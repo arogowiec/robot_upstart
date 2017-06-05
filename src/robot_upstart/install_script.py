@@ -38,8 +38,9 @@ def get_argument_parser():
         to access the Python API from their own setup scripts, but this exists as a simple helper, an example,
         and a compatibility shim for previous versions of robot_upstart which were bash-based.""")
 
-    p.add_argument("pkgpath", type=str, nargs='+', metavar="pkg/path",
+    p.add_argument("pkgpath", type=str, nargs='*', metavar="pkg/path",
                    help="Package and path to install job launch files from.")
+    p.add_argument("--files", type=str, nargs='*', help="Absolute path to launch file to install.")
     p.add_argument("--job", type=str,
                    help="Specify job name. If unspecified, will be constructed from package name.")
     p.add_argument("--interface", type=str, metavar="ethN",
@@ -68,8 +69,24 @@ def main():
 
     args = get_argument_parser().parse_args()
 
-    pkg, pkgpath = args.pkgpath[0].split('/', 1)
-    job_name = args.job or pkg.split('_', 1)[0]
+    pkg = str()
+    job_name = str()
+    use_launch_files = bool(False)
+
+    if len(args.pkgpath) > 0:
+        pkg, _ = args.pkgpath[0].split('/', 1)
+        job_name = args.job or pkg.split('_', 1)[0]
+    elif len(args.files) > 0:
+        use_launch_files = True
+        if len(args.job) > 0:
+            job_name = args.job
+        else:
+            print "Must specify explicitely job name if using --file argument!"
+            return 1
+    else:
+        print "Must provide absolute path to launch file or provide pkg/path to launch file!"
+        return 1
+
 
     # Any unspecified arguments are on the args object as None. These are filled
     # in by the Job constructor when passed as Nones.
@@ -78,20 +95,25 @@ def main():
         workspace_setup=args.setup, rosdistro=args.rosdistro,
         master_uri=args.master, log_path=args.logdir)
 
-    for this_pkgpath in args.pkgpath:
-        pkg, pkgpath = this_pkgpath.split('/', 1)
+    if not use_launch_files:
+        for this_pkgpath in args.pkgpath:
+            pkg, pkgpath = this_pkgpath.split('/', 1)
 
-        found_path = find_in_workspaces(project=pkg, path=pkgpath, first_match_only=True)
-        if not found_path:
-            print "Unable to locate path %s in package %s. Installation aborted." % (pkgpath, pkg)
-            return 1
+            found_path = find_in_workspaces(project=pkg, path=pkgpath, first_match_only=True)
+            if not found_path:
+                print "Unable to locate path %s in package %s. Installation aborted." % (pkgpath, pkg)
+                return 1
 
-        if os.path.isfile(found_path[0]):
-            # Single file, install just that.
-            j.add(package=pkg, filename=pkgpath)
-        else:
-            # Directory found, install everything within.
-            j.add(package=pkg, glob=os.path.join(pkgpath, "*"))
+            if os.path.isfile(found_path[0]):
+                # Single file, install just that.
+                j.add(package=pkg, filename=pkgpath)
+            else:
+                # Directory found, install everything within.
+                j.add(package=pkg, glob=os.path.join(pkgpath, "*"))
+    else:
+        for f in args.files:
+            if os.path.isfile(f):
+                j.add(filename=f)
 
     if args.augment:
         j.generate_system_files = False
